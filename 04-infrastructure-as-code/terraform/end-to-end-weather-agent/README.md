@@ -143,6 +143,45 @@ This Terraform configuration creates:
   - IAM roles and policies
   - AgentCore Runtime resources
 
+5. **UpdateTraceSegmentDestination X-Ray & CloudWatch**
+
+### AWS-CLI UpdateTraceSegmentDestination
+```bash
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+REGION=$(aws configure get region)
+
+aws logs put-resource-policy \
+  --policy-name TransactionSearchXRayAccess \
+  --policy-document "{
+    \"Version\": \"2012-10-17\",
+    \"Statement\": [
+      {
+        \"Sid\": \"TransactionSearchXRayAccess\",
+        \"Effect\": \"Allow\",
+        \"Principal\": {\"Service\": \"xray.amazonaws.com\"},
+        \"Action\": \"logs:PutLogEvents\",
+        \"Resource\": [
+          \"arn:aws:logs:${REGION}:${ACCOUNT_ID}:log-group:aws/spans:*\",
+          \"arn:aws:logs:${REGION}:${ACCOUNT_ID}:log-group:/aws/application-signals/data:*\"
+        ],
+        \"Condition\": {
+          \"ArnLike\": {
+            \"aws:SourceArn\": \"arn:aws:xray:${REGION}:${ACCOUNT_ID}:*\"
+          },
+          \"StringEquals\": {
+            \"aws:SourceAccount\": \"${ACCOUNT_ID}\"
+          }
+        }
+      }
+    ]
+  }"
+```
+
+### UpdateTraceSegmentDestination - Test
+```bash
+aws xray get-trace-segment-destination
+```
+
 ## Quick Start
 
 ### 1. Configure Variables
@@ -157,7 +196,7 @@ Edit `terraform.tfvars` with your preferred values:
 - `agent_name`: Name for the weather agent (default: "WeatherAgent")
 - `memory_name`: Name for memory resource (default: "WeatherAgentMemory")
 - `stack_name`: Stack identifier (default: "agentcore-weather")
-- `aws_region`: AWS region for deployment (default: "us-west-2")
+- `aws_region`: AWS region for deployment (default: "us-east-1")
 - `network_mode`: PUBLIC or PRIVATE networking
 
 ### 2. Initialize Terraform

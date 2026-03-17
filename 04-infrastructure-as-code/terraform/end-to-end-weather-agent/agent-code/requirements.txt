@@ -1,9 +1,12 @@
 strands-agents
 strands-agents-tools
-uv
 boto3
 bedrock-agentcore
 bedrock-agentcore-starter-toolkit
-browser-use==0.3.2
-langchain-aws>=0.1.0
-rich
+browser-use
+langchain-aws
+
+# Pin the HTTP stack explicitly to avoid RequestsDependencyWarning
+requests==2.32.5
+urllib3<3
+charset_normalizer>=3,<4

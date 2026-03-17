@@ -10,6 +10,14 @@ tfplan
 # Generated archives
 *.zip
 
+# Python virtualenvs
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.tfstate.*
+*uv.lock
+
 # OS files
 .DS_Store
 Thumbs.db
@@ -23,3 +31,4 @@ Thumbs.db
 
 # Logs
 *.log
+*logs.txt

@@ -1,3 +1,14 @@
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message=r".*doesn't match a supported version.*",
+)
+
+import logging
+logging.getLogger("botocore.credentials").setLevel(logging.WARNING)
+logging.getLogger("botocore").setLevel(logging.WARNING)
+logging.getLogger("boto3").setLevel(logging.WARNING)
+
 from strands import Agent, tool
 from strands_tools import use_aws
 from typing import Dict, Any
@@ -5,6 +16,7 @@ import json
 import os
 import asyncio
 from contextlib import suppress
+import re
 
 from bedrock_agentcore.tools.browser_client import BrowserClient
 from browser_use import Agent as BrowserAgent
@@ -13,14 +25,14 @@ from browser_use.browser import BrowserProfile
 from langchain_aws import ChatBedrockConverse
 from bedrock_agentcore.tools.code_interpreter_client import CodeInterpreter
 from bedrock_agentcore.memory import MemoryClient
-from rich.console import Console
-import re
-
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
-app = BedrockAgentCoreApp()
-
-console = Console()
+logging.basicConfig(
+    level=logging.INFO,
+    format='{"time": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": %(message)s}',
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+logger = logging.getLogger("weather_agent")
 
 # Configuration - All required, no defaults
 BROWSER_ID = os.getenv("BROWSER_ID")
@@ -48,12 +60,12 @@ if missing:
 async def run_browser_task(browser_session, bedrock_chat, task: str) -> str:
     """Run a browser automation task using browser_use"""
     try:
-        console.print(f"[blue]🤖 Executing browser task:[/blue] {task[:100]}...")
+        logger.info('"tool": "browser", "event": "task_start", "task_preview": "%s"', task[:100])
 
         agent = BrowserAgent(task=task, llm=bedrock_chat, browser=browser_session)
 
         result = await agent.run()
-        console.print("[green]✅ Browser task completed successfully![/green]")
+        logger.info('"tool": "browser", "event": "task_complete"')
 
         if "done" in result.last_action() and "text" in result.last_action()["done"]:
             return result.last_action()["done"]["text"]
@@ -61,7 +73,7 @@ async def run_browser_task(browser_session, bedrock_chat, task: str) -> str:
             raise ValueError("NO Data")
 
     except Exception as e:
-        console.print(f"[red]❌ Browser task error: {e}[/red]")
+        logger.error('"tool": "browser", "event": "task_error", "error": "%s"', e)
         raise
 
 
@@ -72,7 +84,7 @@ async def initialize_browser_session():
         client.start(identifier=BROWSER_ID)
 
         ws_url, headers = client.generate_ws_headers()
-        console.print(f"[cyan]🔗 Browser WebSocket URL: {ws_url[:50]}...[/cyan]")
+        logger.info('"tool": "browser", "event": "ws_url", "url_preview": "%s..."', ws_url[:50])
 
         browser_profile = BrowserProfile(
             headers=headers,
@@ -80,10 +92,10 @@ async def initialize_browser_session():
         )
 
         browser_session = BrowserSession(
-            cdp_url=ws_url, browser_profile=browser_profile, keep_alive=True
+            cdp_url=ws_url, browser_profile=browser_profile, keep_alive=False
         )
 
-        console.print("[cyan]🔄 Initializing browser session...[/cyan]")
+        logger.info('"tool": "browser", "event": "session_init"')
         await browser_session.start()
 
         bedrock_chat = ChatBedrockConverse(
@@ -91,11 +103,11 @@ async def initialize_browser_session():
             region_name=AWS_REGION,
         )
 
-        console.print("[green]✅ Browser session initialized and ready[/green]")
+        logger.info('"tool": "browser", "event": "session_ready"')
         return browser_session, bedrock_chat, client
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to initialize browser session: {e}[/red]")
+        logger.error('"tool": "browser", "event": "session_init_error", "error": "%s"', e)
         raise
 
 
@@ -106,7 +118,7 @@ async def get_weather_data(city: str) -> Dict[str, Any]:
     browser_session = None
 
     try:
-        console.print(f"[cyan]🌐 Getting weather data for {city}[/cyan]")
+        logger.info('"tool": "get_weather_data", "event": "start", "city": "%s"', city)
 
         (
             browser_session,
@@ -168,7 +180,7 @@ async def get_weather_data(city: str) -> Dict[str, Any]:
         return {"status": "success", "content": [{"text": result}]}
 
     except Exception as e:
-        console.print(f"[red]❌ Error getting weather data: {e}[/red]")
+        logger.error('"tool": "get_weather_data", "event": "error", "city": "%s", "error": "%s"', city, e)
         return {
             "status": "error",
             "content": [{"text": f"Error getting weather data: {str(e)}"}],
@@ -176,10 +188,10 @@ async def get_weather_data(city: str) -> Dict[str, Any]:
 
     finally:
         if browser_session:
-            console.print("[yellow]🔌 Closing browser session...[/yellow]")
+            logger.info('"tool": "browser", "event": "session_close"')
             with suppress(Exception):
                 await browser_session.close()
-            console.print("[green]✅ Browser session closed[/green]")
+            logger.info('"tool": "browser", "event": "session_closed"')
 
 
 @tool
@@ -230,7 +242,11 @@ def execute_code(python_code: str) -> Dict[str, Any]:
             code_execute_result = json.dumps(event["result"])
 
         analysis_results = json.loads(code_execute_result)
-        console.print("Analysis results:", analysis_results)
+        logger.info(
+            '"tool": "execute_code", "event": "complete", "exit_code": %s, "execution_time_s": %s',
+            analysis_results.get("structuredContent", {}).get("exitCode", "unknown"),
+            analysis_results.get("structuredContent", {}).get("executionTime", "unknown"),
+        )
 
         return {"status": "success", "content": [{"text": str(analysis_results)}]}
 
@@ -290,26 +306,22 @@ def create_weather_agent() -> Agent:
 @app.async_task
 async def async_main(query=None):
     """Async main function"""
-    console.print("🌤️ Weather-Based Activity Planner - Async Version")
-    console.print("=" * 30)
+    logger.info('"event": "agent_start", "version": "async"')
 
     agent = create_weather_agent()
 
     query = query or "What should I do this weekend in Richmond VA?"
-    console.print(f"\n[bold blue]🔍 Query:[/bold blue] {query}")
-    console.print("-" * 50)
+    logger.info('"event": "query_received", "query": "%s"', query)
 
     try:
         os.environ["BYPASS_TOOL_CONSENT"] = "True"
         result = agent(query)
 
+        logger.info('"event": "agent_complete"')
         return {"status": "completed", "result": result.message["content"][0]["text"]}
 
     except Exception as e:
-        console.print(f"[red]❌ Error: {e}[/red]")
-        import traceback
-
-        traceback.print_exc()
+        logger.exception('"event": "agent_error", "error": "%s"', e)
         return {"status": "error", "error": str(e)}
 
 

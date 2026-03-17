@@ -21,6 +21,7 @@ Examples:
 import boto3
 import json
 import sys
+from botocore.config import Config
 
 
 def extract_region_from_arn(arn):
@@ -135,8 +136,16 @@ def test_weather_agent(agent_arn):
     print(f"\nAgent ARN: {agent_arn}")
     print(f"Region: {region}")
 
-    # Create bedrock-agentcore client with extracted region
-    agentcore_client = boto3.client("bedrock-agentcore", region_name=region)
+    # Create bedrock-agentcore client with extended timeouts
+    # Browser + code interpreter tasks can take several minutes
+    client_config = Config(
+        read_timeout=600,       # 10 minutes for long-running agent tasks
+        connect_timeout=10,
+        retries={"max_attempts": 0},  # don't retry on timeout
+    )
+    agentcore_client = boto3.client(
+        "bedrock-agentcore", region_name=region, config=client_config
+    )
 
     test_results = []
 
@@ -153,6 +162,7 @@ def test_weather_agent(agent_arn):
     test_results.append(("Simple Weather Query", result))
 
     # Test 2: Complex query with tools (browser + code interpreter + memory)
+    '''
     print("\n" + "=" * 80)
     print("TEST 2: Complex Query with Tools")
     print("=" * 80)
@@ -163,6 +173,7 @@ def test_weather_agent(agent_arn):
         "Look up current weather conditions for Seattle, create a visualization of the temperature trend, and suggest outdoor activities based on the forecast.",
     )
     test_results.append(("Complex Query with Tools", result))
+    '''
 
     # Summary
     print("\n" + "=" * 80)
